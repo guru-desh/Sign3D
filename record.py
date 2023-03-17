@@ -43,6 +43,7 @@ if __name__ == "__main__":
         os.makedirs('feeds')
     ports = get_available_ports(1000)
     cap_objs = setup_cam(ports)
+    ready = input("Ready to Record.")
     while True:
         rets, frames, recording = make_frames(cap_objs)
         show_frames(frames, recording)

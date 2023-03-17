@@ -7,66 +7,74 @@ from pexpect import pxssh
 import threading
 
 # Define this before running the script. Contains all the information about the employee computers needed for SSH
-# TODO: Use private keys instead of passwords so we don't have to store passwords in plain text.
-# TODO for Guru: The IP Addresses keep changing. It's affecting ASL QA too. Go talk to Tim about this.
-employees = {
-    'IP_ADDRESS_1': {
-        'username': 'password',
-    },
-    'IP_ADDRESS_2': {
-        'username': 'password',
-    }
-}
+with open('password.txt', 'r') as f:
+    password = f.read().strip()
 
+employees = {
+    '100.70.35.117': (
+        'tsrb243', password
+    )
+}
 # Create a dictionary of SSH sessions
 ssh_clients = {}
-for i, ip, credentials in enumerate(employees.items()):
+
+count = 0
+for ip, credentials in employees.items():
+    print(ip, credentials)
     # Create a new SSH session
-    ssh_clients[ip] = pxssh.pxssh()
+    ssh_clients[ip] = pxssh.pxssh(encoding='utf-8')
     
     # Try to SSH into the remote machine. If it fails, print the error and exit.
     try:
-        ssh_clients[ip].login(ip, credentials['username'], credentials['password'])
+        ssh_clients[ip].login(ip, credentials[0], credentials[1])
     except pxssh.ExceptionPxssh as e:
         print(e)
-        print(f"pxssh failed on login for employee{i} with ip address {ip}.")
+        print(f"pxssh failed on login for employee{count} with ip address {ip}.")
         print("Exiting...")
         exit()
-
-# Run the python script on all the remote machines. Can also run additional bash commands here.
-# TODO: Add additional commands based on the recording script (not sure where that is)
+    count += 1
+    
+# Run the python script on all the remote machines.
 for ip in ssh_clients.keys():
-    ssh_clients[ip].sendline('python RECORDING.py')
+    ssh_clients[ip].sendline('cd MultiCam/ && conda activate maac && export DISPLAY=:0.0 && python3 record.py')  
 
 # Wait for all the employees to be ready to record
 readiness = []
 for ip in ssh_clients.keys():
-    readiness.append(ssh_clients[ip].expect('Hello', timeout=10))
+    try:
+        success = ssh_clients[ip].expect('Ready to Record', timeout=3)
+        readiness.append(True)
+    except pxssh.TIMEOUT:
+        print("Not all employees are ready to record within the timeout.")
+        print("Aborting...")
+        exit()
 
-# If not all employees are ready to record by the timeout, print an error message and exit. 
-# TODO: Come up with better error messages about which employees are not ready to record and why.
-if not all(readiness):
-    print("Not all employees are ready to record within the timeout.")
-    print("Aborting...")
-    exit()
-    
 # Wait for the user to press enter to start recording
 print("All employees are ready to record.")
 input("Press enter to start recording.")
 
-# Create a list of threads to start recording on all the remote machines at the same time.
-# TODO: It's possible to do all of the SSH stuff and preliminary commands in the threads themselves. Should we do that?
 threads = []
 for ip in ssh_clients.keys():
-    threads.append(threading.Thread(target=ssh_clients[ip].sendline, args=("SOMETHING",)))
+    threads.append(threading.Thread(target=ssh_clients[ip].sendline, args=("Enter",)))
 
 # Start recording on all the remote machines at the same time.
 print("Recording has started.")
 for thread in threads:
     thread.start()
+    
+for thread in threads:
+    thread.join()
 
-# Wait for the recording to end.
-# TODO: Understand about how recording will end and how to handle that.
+# TODO: Handle ending the script
+input("Press enter to end recording:\n")
+threads = []
+for ip in ssh_clients.keys():
+    # Send a ctrl-c to end the recording to all the remote machines at the same time.
+    threads.append(threading.Thread(target=ssh_clients[ip].sendcontrol, args=("c",)))
+
+for thread in threads:
+    thread.start()
+
 for thread in threads:
     thread.join()
 
